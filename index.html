@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>丹青墨韵 - 终极通关挑战</title>
+    <style>
+        :root { --paper: #f2ede4; --ink: #2c3e50; --gold: #c6a052; }
+        body {
+            margin: 0; background-color: var(--paper);
+            font-family: "STSong", "SimSun", serif;
+            display: flex; justify-content: center; align-items: center;
+            min-height: 100vh; overflow: hidden; transition: background 1.5s ease;
+        }
+        
+        /* === 粒子背景 Canvas 样式 === */
+        #particle-canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 0; 
+            pointer-events: none; 
+        }
+
+        /* 宣纸纹理 */
+        body::after {
+            content: ""; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background-image: url('https://www.transparenttextures.com/patterns/handmade-paper.png');
+            opacity: 0.5; pointer-events: none; z-index: 100; 
+        }
+
+        #game-stage { width: 90%; max-width: 600px; text-align: center; z-index: 101; position: relative; }
+
+        /* 水墨晕染 */
+        #color-container { display: flex; justify-content: center; gap: 20px; margin-bottom: 40px; min-height: 160px; align-items: center; }
+        .ink-spot {
+            width: 130px; height: 130px; border-radius: 50%; filter: blur(10px);
+            transition: all 1s ease; mix-blend-mode: multiply;
+            animation: breathe 4s ease-in-out infinite;
+        }
+        @keyframes breathe { 0%, 100% { transform: scale(1); opacity: 0.7; } 50% { transform: scale(1.1); opacity: 0.9; } }
+
+        /* 诗句显影 */
+        #poem-display { font-size: 26px; color: var(--ink); margin-bottom: 40px; letter-spacing: 6px; min-height: 60px; }
+        .char-slot { display: inline-block; width: 1.2em; border-bottom: 2px solid #999; margin: 0 4px; color: transparent; transition: all 0.8s; }
+        .char-reveal { color: inherit; border-bottom: 2px solid transparent; }
+
+        /* 选项 */
+        .options-list { display: grid; gap: 12px; }
+        .btn-ink {
+            background: rgba(255,255,255,0.4); border: 1px solid rgba(0,0,0,0.1);
+            padding: 16px; font-size: 17px; font-family: inherit; cursor: pointer;
+            transition: 0.3s; border-radius: 4px; z-index: 102; 
+        }
+        .btn-ink:hover { background: rgba(255,255,255,0.9); border-color: var(--ink); }
+
+        /* 段位弹窗 */
+        #rank-modal {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.8); display: none;
+            justify-content: center; align-items: center; z-index: 1000;
+            color: var(--paper); text-align: center;
+        }
+        .modal-content { animation: modalFade 0.6s ease; }
+        @keyframes modalFade { from { transform: scale(0.8); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+        .rank-title { font-size: 48px; color: var(--gold); margin: 20px 0; letter-spacing: 15px; }
+
+        /* 图鉴区 */
+        .status-bar { margin-top: 40px; font-size: 14px; color: #777; border-top: 1px solid #ddd; padding-top: 15px; position: relative; z-index: 101; }
+        #collection { display: flex; justify-content: center; flex-wrap: wrap; gap: 10px; margin-top: 10px; }
+        .collect-dot { 
+            width: 20px; height: 20px; border-radius: 50%; border: 1px solid #ccc; 
+            cursor: pointer; position: relative; transition: 0.3s; 
+        }
+        .collect-dot:hover::after {
+            content: attr(data-title); position: absolute; bottom: 25px; left: 50%;
+            transform: translateX(-50%); background: var(--ink); color: #fff;
+            padding: 4px 8px; border-radius: 4px; font-size: 10px; white-space: nowrap; z-index: 110;
+        }
+    </style>
+</head>
+<body>
+
+<canvas id="particle-canvas"></canvas>
+
+<div id="rank-modal">
+    <div class="modal-content">
+        <div style="font-size: 18px; letter-spacing: 5px;">恭贺晋升</div>
+        <div id="modal-rank-name" class="rank-title">丹青学徒</div>
+        <button onclick="closeModal()" style="background:none; border:1px solid var(--gold); color:var(--gold); padding:10px 30px; cursor:pointer;">继续修行</button>
+    </div>
+</div>
+
+<div id="game-stage">
+    <div style="letter-spacing: 12px; color: #aaa; font-size: 14px; margin-bottom: 25px;">墨色</div>
+    
+    <div id="color-container"></div>
+    <div id="poem-display"></div>
+    <div id="options" class="options-list"></div>
+    <div class="status-bar">
+        <div>
+            得分：<b id="score" style="color:var(--ink)">0</b> / 100 | 
+            段位：<b id="rank-label">初识墨色</b>
+        </div>
+        <div id="collection"></div>
+    </div>
+</div>
+
+<script>
+    const db = [
+        { id: 1, c: ["#228B22"], q: "春风又[绿]江南岸", a: "春风又绿江南岸", bg: "#f0f7f0" },
+        { id: 2, c: ["#F8F8FF"], q: "千树万树[梨花]开", a: "千树万树梨花开", bg: "#f8faff" },
+        { id: 3, c: ["#FFD700"], q: "满地[黄花]堆积", a: "满地黄花堆积", bg: "#fdfaf0" },
+        { id: 4, c: ["#E32636"], q: "日出江花[红]胜火", a: "日出江花红胜火", bg: "#fff5f5" },
+        { id: 5, c: ["#228B22", "#E32636"], q: "应是[绿]肥[红]瘦", a: "应是绿肥红瘦", bg: "#f7fcf7" },
+        { id: 6, c: ["#708090", "#FFA500"], q: "[苍山]远，[落日]重", a: "苍山远，落日重", bg: "#fdf7f2" },
+        { id: 7, c: ["#191970"], q: "[黑云]压城城欲摧", a: "黑云压城城欲摧", bg: "#f0f1f5" },
+        { id: 8, c: ["#FF4500"], q: "霜叶[红]于二月花", a: "霜叶红于二月花", bg: "#fff7f2" },
+        { id: 9, c: ["#319488"], q: "[碧]玉妆成一树高", a: "碧玉妆成一树高", bg: "#f2f7f2" },
+        { id: 10, c: ["#87CEEB"], q: "秋水共[长天]一色", a: "秋水共长天一色", bg: "#f0f8ff" }
+    ];
+
+    let state = {
+        score: 0,
+        maxScore: 100,
+        lastRank: "初识墨色",
+        collection: JSON.parse(localStorage.getItem('dq-final-coll') || '[]'),
+        pool: []
+    };
+
+    const playAudio = (f) => {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const o = ctx.createOscillator(); const g = ctx.createGain();
+        o.frequency.setValueAtTime(f, ctx.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.5);
+        o.connect(g); g.connect(ctx.destination);
+        o.start(); o.stop(ctx.currentTime + 0.5);
+    };
+
+    function checkRank(s) {
+        let currentRank = "初识墨色";
+        if (s >= 80) currentRank = "丹青国手";
+        else if (s >= 60) currentRank = "洗砚书生";
+        else if (s >= 30) currentRank = "丹青学徒";
+
+        if (currentRank !== state.lastRank) {
+            state.lastRank = currentRank;
+            showModal(currentRank);
+        }
+        return currentRank;
+    }
+
+    function showModal(name) {
+        document.getElementById('modal-rank-name').innerText = name;
+        document.getElementById('rank-modal').style.display = 'flex';
+        playAudio(440); 
+    }
+
+    function closeModal() {
+        document.getElementById('rank-modal').style.display = 'none';
+        if(state.score >= state.maxScore) location.reload(); 
+    }
+
+    function updateView() {
+        document.getElementById('score').innerText = state.score;
+        const r = checkRank(state.score);
+        document.getElementById('rank-label').innerText = r;
+        
+        const collDiv = document.getElementById('collection');
+        collDiv.innerHTML = '';
+        db.forEach(item => {
+            const dot = document.createElement('div');
+            dot.className = 'collect-dot';
+            if (state.collection.includes(item.id)) {
+                dot.style.background = item.c[0];
+                dot.setAttribute('data-title', item.a);
+            } else {
+                dot.style.background = '#ddd';
+                dot.setAttribute('data-title', '尚未解锁');
+            }
+            collDiv.appendChild(dot);
+        });
+    }
+
+    function nextRound() {
+        if (state.score >= state.maxScore) {
+            showModal("大圆满·丹青圣手");
+            return;
+        }
+
+        if (state.pool.length === 0) state.pool = [...db].sort(() => Math.random() - 0.5);
+        const item = state.pool.pop();
+        state.cur = item;
+
+        document.body.style.backgroundColor = item.bg;
+        const container = document.getElementById('color-container');
+        container.innerHTML = '';
+        item.c.forEach(c => {
+            const s = document.createElement('div');
+            s.className = 'ink-spot';
+            s.style.background = `radial-gradient(circle, ${c} 0%, transparent 80%)`;
+            container.appendChild(s);
+        });
+
+        document.getElementById('poem-display').innerHTML = item.q.replace(/\[(.*?)\]/g, '<span class="char-slot">$1</span>');
+        
+        const optZone = document.getElementById('options');
+        optZone.innerHTML = '';
+        const choices = [item.a, "举杯邀明月", "空山新雨后"].sort(() => Math.random() - 0.5);
+        choices.forEach(t => {
+            const b = document.createElement('button');
+            b.className = 'btn-ink';
+            b.innerText = t;
+            b.onclick = () => {
+                if (t === item.a) {
+                    playAudio(880);
+                    state.score += 10;
+                    document.querySelectorAll('.char-slot').forEach(el => el.classList.add('char-reveal'));
+                    if (!state.collection.includes(item.id)) {
+                        state.collection.push(item.id);
+                        localStorage.setItem('dq-final-coll', JSON.stringify(state.collection));
+                    }
+                    updateView();
+                    setTimeout(nextRound, 1500);
+                } else {
+                    playAudio(150);
+                    b.style.background = "#e07a5f";
+                }
+            };
+            optZone.appendChild(b);
+        });
+    }
+
+    updateView();
+    nextRound();
+
+    (function() {
+        const canvas = document.getElementById('particle-canvas');
+        const ctx = canvas.getContext('2d');
+        let particles = [];
+
+        function setCanvasSize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+
+        class Particle {
+            constructor() {
+                this.init();
+            }
+
+            init() {
+                this.x = Math.random() * canvas.width;
+                this.y = Math.random() * canvas.height;
+                this.size = Math.random() * 1.5 + 0.5;
+                this.speedX = (Math.random() - 0.5) * 0.15;
+                this.speedY = (Math.random() - 0.5) * 0.15; 
+                this.opacity = Math.random() * 0.15 + 0.05;
+                this.fadeSpeed = Math.random() * 0.001 + 0.0005;
+                this.fadingIn = Math.random() > 0.5;
+            }
+
+            update() {
+                this.x += this.speedX;
+                this.y += this.speedY;
+
+                if (this.x < 0 || this.x > canvas.width || this.y < 0 || this.y > canvas.height) {
+                    this.init();
+                    this.opacity = 0;
+                }
+
+                if (this.fadingIn) {
+                    this.opacity += this.fadeSpeed;
+                    if (this.opacity >= 0.2) this.fadingIn = false;
+                } else {
+                    this.opacity -= this.fadeSpeed;
+                    if (this.opacity <= 0.05) {
+                        this.fadingIn = true;
+                        this.x = Math.random() * canvas.width;
+                        this.y = Math.random() * canvas.height;
+                    }
+                }
+            }
+
+            draw() {
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fillStyle = `rgba(44, 62, 80, ${this.opacity})`;
+                ctx.fill();
+            }
+        }
+
+        function initParticles() {
+            particles = [];
+            const numberOfParticles = (canvas.width * canvas.height) / 12000;
+            for (let i = 0; i < numberOfParticles; i++) {
+                particles.push(new Particle());
+            }
+        }
+
+        function animate() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            for (let i = 0; i < particles.length; i++) {
+                particles[i].update();
+                particles[i].draw();
+            }
+            requestAnimationFrame(animate);
+        }
+
+        window.addEventListener('resize', function() {
+            setCanvasSize();
+            initParticles();
+        });
+
+        setCanvasSize();
+        initParticles();
+        animate();
+    })();
+</script>
+</body>
+</html>
